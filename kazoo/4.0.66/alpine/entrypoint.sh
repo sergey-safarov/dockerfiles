@@ -24,6 +24,7 @@ fi
 if [ "$RELX_REPLACE_OS_VARS" == "true" ];then
         export RELX_REPLACE_OS_VARS
 fi
+export NODE_NAME
 export VMARGS_PATH
 
 trap 'kill -TERM  ${!}' SIGTERM
