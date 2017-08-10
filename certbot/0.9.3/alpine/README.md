@@ -64,3 +64,9 @@ Unit=certbot-docker.service
 [Install]
 WantedBy=multi-user.target
 ```
+
+Then enable timer unit
+```
+systemctl enable certbot-docker.timer
+```
+
