@@ -7,7 +7,7 @@ fi
 
 nginx
 
-if [ "$1"=="renew" ]; then
+if [ "renew" == "$1" ]; then
     certbot renew --webroot --webroot-path /usr/share/nginx/html
     rc=$?
 else
