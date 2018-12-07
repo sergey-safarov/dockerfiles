@@ -1,0 +1,27 @@
+[Unit]
+Description=captagentontainer
+After=docker.service network-online.target
+Requires=docker.service
+
+
+[Service]
+Restart=always
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker rm -f captagent
+;Space symbol must be escaped https://www.freedesktop.org/software/systemd/man/systemd-escape.html
+ExecStart=/usr/bin/docker run -t \
+                 --rm=true \
+                 --name=captagent \
+                 --network=host \
+                 -e ETHERNET_DEV=eth1 \
+                 -e CAPTURE_HOST=10.4.6.41 \
+                 -e CAPTURE_FILTER=port\x205060\x20or\x201100 \
+                 --entrypoint=sh \
+                 -e LOG_LEVEL=3 \
+                 safarov/captagent
+
+ExecStop=/usr/bin/docker stop captagent
+
+[Install]
+WantedBy=multi-user.target
+
