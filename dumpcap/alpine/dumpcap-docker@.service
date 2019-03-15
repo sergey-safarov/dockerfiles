@@ -1,0 +1,23 @@
+[Unit]
+Description=dumpcap container template
+After=docker.service network-online.target
+Requires=docker.service
+
+
+[Service]
+Restart=always
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker rm -f dumpcap-%i
+;Space symbol must be escaped https://www.freedesktop.org/software/systemd/man/systemd-escape.html
+ExecStart=/usr/bin/docker run -t \
+                --rm=true \
+                --name=dumpcap-%i \
+                --network=container:%i \
+                -w="/dumpcap/%i" \
+                -v dumpcap:/dumpcap \
+                safarov/dumpcap
+
+ExecStop=/usr/bin/docker stop dumpcap-%i
+
+[Install]
+WantedBy=multi-user.target
