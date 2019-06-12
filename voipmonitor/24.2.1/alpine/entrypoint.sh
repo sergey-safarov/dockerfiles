@@ -29,5 +29,12 @@ fi
 
 sed -e "s/.*cloud_token.*/cloud_token = ${TOKEN}/" ${CONFIG} > /tmp/runtime.conf
 
-exec /usr/local/sbin/voipmonitor -k --config-file /tmp/runtime.conf --id-sensor=${SENSOR_ID}
+# If server NATed, then need add 'natalias' option.
+# now supported AWS cloud
+if [ "${CLOUD}" == "AWS" ]; then
+  PUBLIC=$(wget -qO - http://169.254.169.254/latest/meta-data/public-ipv4)
+  LOCAL=$(wget -qO - http://169.254.169.254/latest/meta-data/local-ipv4)
+  echo "natalias = ${PUBLIC} ${LOCAL}" >> /tmp/runtime.conf
+fi
 
+exec /usr/local/sbin/voipmonitor -k --config-file /tmp/runtime.conf --id-sensor=${SENSOR_ID}
