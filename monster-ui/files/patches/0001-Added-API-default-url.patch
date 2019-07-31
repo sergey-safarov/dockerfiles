@@ -1,0 +1,26 @@
+From b0bce0a77f84935a2738cbb900aaf8b419fc4cbe Mon Sep 17 00:00:00 2001
+From: Sergey Safarov <s.safarov@gmail.com>
+Date: Wed, 31 Jul 2019 19:20:50 +0300
+Subject: [PATCH] Added API default url
+
+---
+ src/js/config.js | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/js/config.js b/src/js/config.js
+index 495f055d..84ce30b9 100644
+--- a/src/js/config.js
++++ b/src/js/config.js
+@@ -13,6 +13,9 @@
+  * https://docs.2600hz.com/ui/docs/configuration/
+  */
+ define({
++	api: {
++		'default': 'http://monster.ui/'
++	},
+ 	whitelabel: {
+ 		companyName: '2600Hz',
+ 		applicationTitle: 'Monster UI',
+-- 
+2.21.0
+
