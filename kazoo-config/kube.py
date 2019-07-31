@@ -116,14 +116,18 @@ def get_pods_by_namespace(namespace: str) -> List[V1Pod]:
     return [i for i in pods_list.items]
 
 
-def get_stateful_set_pods_ip() -> List[str]:
+def get_stateful_set_pods_ip(pods) -> List[V1Pod]:
+    return [i.status.pod_ip for i in pods]
+
+
+def get_statefull_set_pods():
     res = []
     pods = get_pods_by_namespace(NAMESPACE)
     for pod in pods:
         if pod.metadata.owner_references:
             for ref in pod.metadata.owner_references:
                 if ref.name == PARENT_STATEFULSET:
-                    res.append(pod.status.pod_ip)
+                    res.append(pod)
     return res
 
 
@@ -165,13 +169,16 @@ def get_statefulset_public_ip_pool(namespace: str) -> List[str]:
             return set.metadata.annotations.get('public_ip_pool').split()
 
 
-def prepare_address_objects(pool: List[str]) -> List[Dict]:
+def prepare_address_objects(pool: List[str]) -> (List[Dict], List[str]):
     res = ec2.describe_addresses()
+
     addresses = [address for address in res['Addresses'] if address['PublicIp'] in pool]
-    missing_addresses = [i for i in pool if i not in [a['PublicIp'] for a in addresses]]
-    if missing_addresses:
-        print(f"Unaccessible addresses: {missing_addresses}")
-    return addresses
+    # inaccessible_addresses = [address for address in res['Addresses'] if address['PublicIp'] in pool and address not in addresses]
+    inaccessible_addresses = [i for i in pool if i not in [a['PublicIp'] for a in addresses]]
+
+    if inaccessible_addresses:
+        print(f"Inaccessible addresses: {inaccessible_addresses}")
+    return addresses, inaccessible_addresses
 
 
 def assign_address_to_instance(addresses: List[Dict], instance: str, interface: str, my_ip: str
@@ -193,12 +200,41 @@ def assign_address_to_instance(addresses: List[Dict], instance: str, interface: 
     return None, err
 
 
+def release_address(address: Dict):
+    try:
+        _ = ec2.release_address(AllocationId=address['AllocationId'])
+    except Exception as e:
+        print(f"Failed to release address {address} - {e}")
+
+
+def get_pods_by_instance_ip(elastic_ip_obj: Dict) -> List[V1Pod]:
+    try:
+        pods_list = v1.list_namespaced_pod(NAMESPACE)  # type: V1PodList
+    except ApiException:
+        print(f"""Pod permission not configured
+            Please execute 
+            kubectl create rolebinding default-view --clusterrole=view --serviceaccount={NAMESPACE}:default --namespace={NAMESPACE}""")
+        exit(1)
+    return [i for i in pods_list.items if i.status.pod_ip == elastic_ip_obj['PrivateIpAddress']]
+
+
+def delete_pod(name):
+    v1.delete_namespaced_pod(name, NAMESPACE)
+
+
+def get_nodes_by_instance_id(instance_id: str) -> List[V1Node]:
+    all_nodes = get_all_nodes()
+    return [n for n in all_nodes if n.spec.provider_id.split('/')[-1] == instance_id]
+
+
 if __name__ == '__main__':
+    mapped_ip = None
+    errors = None
 
     my_ip = get_ip()
     print(f"My IP: {my_ip}")
-
-    stateful_ips = get_stateful_set_pods_ip()
+    stateful_pods = get_statefull_set_pods()
+    stateful_ips = get_stateful_set_pods_ip(stateful_pods)
     print(f"Stateful IPs: {stateful_ips}")
 
     if my_ip not in stateful_ips:
@@ -228,13 +264,50 @@ if __name__ == '__main__':
     print(f"Please map with {my_ip} IP address one of this elastic IP addresses:")
     print(f"{public_ip_pool}")
 
-    address_objects = prepare_address_objects(public_ip_pool)
-    if not address_objects:
-        print("No free addresses found")
-        exit(1)
+    address_objects, inaccessibles = prepare_address_objects(public_ip_pool)
 
-    mapped_ip, errors = assign_address_to_instance(
-        address_objects, instance_id, network_interface, my_ip)
+    print(f"Inaccessibles IP addresses: {inaccessibles}")
+
+    for ip in address_objects:
+
+        if ip['PrivateIpAddress'] and ip['InstanceId']:
+            pods = get_pods_by_instance_ip(ip)
+
+            if not pods:
+                print(f"No pods found associated with address {ip}")
+                release_address(ip)
+
+            else:
+                nodes = get_nodes_by_instance_id(ip['InstanceId'])
+                if not nodes:
+                    print(f"No nodes found for IP address {ip}")
+                    exit(1)
+
+                for node in nodes:
+                    if [i.address for i in node.status.addresses if i.type == 'InternalIP'] != [pods[0].status.host_ip]:
+                        print(f"No pods found associated with address {ip}")
+                        release_address(ip)
+                        continue
+
+                # if not pods returned -> deallocate
+                # if we have a name -> check owner of the pod
+                # if part of statefull set -> do nothing
+                # if nod internal ip == my internal ip -> return the ip in question and end the script
+                # if not a part of statefull set -> deallocate + restart (delete pod)
+
+                if pods[0].metadata.name not in [i.metadata.name for i in stateful_pods]:
+                    print(f"{pods[0].metadata.name} associated with address {ip} and not a part of stateful set")
+                    release_address(ip)
+                    delete_pod(pods[0].metadata.name)
+
+                if pods[0].status.pod_ip == my_ip:
+                    mapped_ip = ip['PublicIp']
+
+    address_objects, inaccessibles = prepare_address_objects(public_ip_pool)
+
+    if not mapped_ip:
+        mapped_ip, errors = assign_address_to_instance(
+            address_objects, instance_id, network_interface, my_ip)
 
     if not mapped_ip and errors:
         print(f"Failed to assign elastic IP - {errors}")
