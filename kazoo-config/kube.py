@@ -150,7 +150,7 @@ def get_all_nodes() -> List[V1Node]:
     return [i for i in lst.items]
 
 
-def get_instance_id_by_host_ip(host_ip: str) -> (str, str):
+def get_instance_id_by_host_ip(host_ip: str, pod_ip: str) -> (str, str):
     nodes = get_all_nodes()
     for node in nodes:
         for addr in node.status.addresses:
@@ -159,7 +159,12 @@ def get_instance_id_by_host_ip(host_ip: str) -> (str, str):
                 instance = ec2r.Instance(instance_id)
                 for network_interface in instance.network_interfaces_attribute:
                     if network_interface['PrivateIpAddress'] == host_ip:
-                        return (instance_id, network_interface['NetworkInterfaceId'])
+                        for network_interface in instance.network_interfaces_attribute:
+                            if any([i['PrivateIpAddress'] == pod_ip for i in network_interface['PrivateIpAddresses']]):
+                                return instance_id, network_interface['NetworkInterfaceId']
+
+    print(f"Error - no nods found for ip {host_ip}")
+    exit(1)
 
 
 def get_statefulset_public_ip_pool(namespace: str) -> List[str]:
@@ -176,22 +181,27 @@ def prepare_address_objects(pool: List[str]) -> (List[Dict], List[str]):
     # inaccessible_addresses = [address for address in res['Addresses'] if address['PublicIp'] in pool and address not in addresses]
     inaccessible_addresses = [i for i in pool if i not in [a['PublicIp'] for a in addresses]]
 
-    if inaccessible_addresses:
-        print(f"Inaccessible addresses: {inaccessible_addresses}")
     return addresses, inaccessible_addresses
 
 
-def assign_address_to_instance(addresses: List[Dict], instance: str, interface: str, my_ip: str
+def assign_address_to_instance(addresses: List[Dict], instance: str, interface: str, my_ip: str, force: bool = False
                                ) -> (str, List[str]):
     err = []
     for address in addresses:
         try:
             print(f"Trying to assign {address} to {instance} ({interface})")
-            _ = ec2.associate_address(
-                AllocationId=address['AllocationId'],
-                NetworkInterfaceId=interface,
-                AllowReassociation=False,
-                PrivateIpAddress=my_ip)
+            if not force:
+                _ = ec2.associate_address(
+                    AllocationId=address['AllocationId'],
+                    NetworkInterfaceId=interface,
+                    AllowReassociation=False,
+                    PrivateIpAddress=my_ip)
+            else:
+                _ = ec2.associate_address(
+                    AllocationId=address['AllocationId'],
+                    NetworkInterfaceId=interface,
+                    AllowReassociation=True,
+                    PrivateIpAddress=my_ip)
         except Exception as e:
             err.append(f"{address['PublicIp']} - {e}")
         else:
@@ -202,7 +212,9 @@ def assign_address_to_instance(addresses: List[Dict], instance: str, interface: 
 
 def release_address(address: Dict):
     try:
-        _ = ec2.release_address(AllocationId=address['AllocationId'])
+        address = ec2r.VpcAddress(address['AllocationId'])
+        address.association.delete()
+        # _ = ec2.release_address(AllocationId=address['AllocationId'])
     except Exception as e:
         print(f"Failed to release address {address} - {e}")
 
@@ -248,7 +260,7 @@ if __name__ == '__main__':
         print("error: cannot determine host IP")
         exit(1)
 
-    instance_id, network_interface = get_instance_id_by_host_ip(host_ip)
+    instance_id, network_interface = get_instance_id_by_host_ip(host_ip, my_ip)
     print(f"Instance ID: {instance_id}, Network interface: {network_interface}")
     if not instance_id:
         print("error: cannot determine EC2 Instance-ID")
@@ -270,7 +282,7 @@ if __name__ == '__main__':
 
     for ip in address_objects:
 
-        if ip['PrivateIpAddress'] and ip['InstanceId']:
+        if ip.get('PrivateIpAddress') and ip.get('InstanceId'):
             pods = get_pods_by_instance_ip(ip)
 
             if not pods:
@@ -287,6 +299,8 @@ if __name__ == '__main__':
                     if [i.address for i in node.status.addresses if i.type == 'InternalIP'] != [pods[0].status.host_ip]:
                         print(f"No pods found associated with address {ip}")
                         release_address(ip)
+                        # mapped_ip, errors = assign_address_to_instance(
+                        #     [ip], instance_id, network_interface, my_ip, force=True)
                         continue
 
                 # if not pods returned -> deallocate
@@ -303,11 +317,8 @@ if __name__ == '__main__':
                 if pods[0].status.pod_ip == my_ip:
                     mapped_ip = ip['PublicIp']
 
-    address_objects, inaccessibles = prepare_address_objects(public_ip_pool)
-
     if not mapped_ip:
-        mapped_ip, errors = assign_address_to_instance(
-            address_objects, instance_id, network_interface, my_ip)
+        mapped_ip, errors = assign_address_to_instance(address_objects, instance_id, network_interface, my_ip)
 
     if not mapped_ip and errors:
         print(f"Failed to assign elastic IP - {errors}")
