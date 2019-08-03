@@ -28,15 +28,26 @@ RUN git clone --branch ${UI_VER} https://github.com/2600hz/monster-ui.git /tmp/m
 COPY files/ /tmp
 
 RUN cd /tmp/monster-ui \
+    && git config --global user.email "you@example.com" \
+    && git config --global user.name "Your Name" \
+    && git am /tmp/patches \
+    && echo "patches applied" \
     && npm install \
     && gulp build-all \
+    && mkdir -p /tmp/target/etc/nginx/conf.d \
     && mkdir -p /tmp/target/var/www \
     && mkdir -p /tmp/target/run/nginx \
     && cp /tmp/entrypoint.sh /tmp/target \
+    && chmod 755 /tmp/target/entrypoint.sh \
+    && mkdir -p /tmp/target/etc/nginx/sites-available \
+    && mkdir -p /tmp/target/etc/nginx/sites-enabled \
+    && mv /tmp/local.conf /tmp/target/etc/nginx/conf.d \
+    && mv /tmp/monster-ui.conf /tmp/target/etc/nginx/sites-available \
+    && ln -s ../sites-available/monster-ui.conf /tmp/target/etc/nginx/sites-enabled \
     && mv dist /tmp/target/var/www/monster-ui-prod \
     && mv distDev /tmp/target/var/www/monster-ui-dev
 
 FROM alpine
-COPY --from=build /tmp/target/ /
 RUN apk --no-cache add nginx
+COPY --from=build /tmp/target/ /
 ENTRYPOINT ["/entrypoint.sh"]
