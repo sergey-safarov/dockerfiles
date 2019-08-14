@@ -27,11 +27,30 @@ RUN git clone --branch ${UI_VER} https://github.com/2600hz/monster-ui.git /tmp/m
 
 COPY files/ /tmp
 
-RUN cd /tmp/monster-ui \
-    && git config --global user.email "you@example.com" \
+RUN git config --global user.email "you@example.com" \
     && git config --global user.name "Your Name" \
-    && git am /tmp/patches \
+    && cd /tmp/monster-ui \
+    && find /tmp/patches -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/accounts \
+    && find /tmp/patches/accounts -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/callflows \
+    && find /tmp/patches/callflows -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/csv \
+    && find /tmp/patches/csv -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/fax \
+    && find /tmp/patches/fax -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/numbers \
+    && find /tmp/patches/numbers -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/pbxs \
+    && find /tmp/patches/pbxs -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/voicemails \
+    && find /tmp/patches/voicemails -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/voip \
+    && find /tmp/patches/voip -maxdepth 1 -type f -name *.patch -exec git am {} \; \
+    && cd /tmp/monster-ui/src/apps/webhooks \
+    && find /tmp/patches/webhooks -maxdepth 1 -type f -name *.patch -exec git am {} \; \
     && echo "patches applied" \
+    && cd /tmp/monster-ui \
     && npm install \
     && gulp build-all \
     && mkdir -p /tmp/target/etc/nginx/conf.d \
@@ -48,6 +67,8 @@ RUN cd /tmp/monster-ui \
     && mv distDev /tmp/target/var/www/monster-ui-dev
 
 FROM alpine
-RUN apk --no-cache add nginx
+RUN apk --no-cache add nginx \
+    && rm -f /etc/nginx/conf.d/default.conf
+
 COPY --from=build /tmp/target/ /
 ENTRYPOINT ["/entrypoint.sh"]
