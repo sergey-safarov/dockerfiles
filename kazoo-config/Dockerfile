@@ -33,7 +33,7 @@ RUN echo "Removing .git folders from repos" \
               /etc/kazoo/kazoo-configs-freeswitch/.git \
               /etc/kazoo/kazoo-configs-kamailio/.git
 
-ADD kube.py /etc/kazoo/kazoo-configs-kamailio/kamailio/
+ADD app.py /etc/kazoo/kazoo-configs-kamailio/kamailio/
 
 
 FROM alpine:edge

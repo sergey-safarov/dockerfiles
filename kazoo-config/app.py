@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import time
+from flask import Flask, request, g, jsonify
 
 try:
     assert sys.version_info >= (3, 7)
@@ -27,7 +29,6 @@ except:
     print("Please install aws-cli - `pip3 install awscli`")
     exit(1)
 
-
 import os
 import subprocess
 import re
@@ -45,21 +46,18 @@ from kubernetes.client.rest import ApiException
 if not os.environ.get('AWS_ACCESS_KEY_ID') or not \
         os.environ.get('AWS_SECRET_ACCESS_KEY') or not \
         os.environ.get('AWS_DEFAULT_REGION'):
-    print("""Please setup AWS credentials. 
+    print("""Please setup AWS credentials.
         We expect not empty AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_DEFAULT_REGION""")
     exit(1)
 
-# 'ippbx'
-NAMESPACE = os.environ.get('NAMESPACE')
-if not NAMESPACE:
-    print("Please set NAMESPACE variable")
-    exit(1)
 
-# proxy-dc0
-PARENT_STATEFULSET = os.environ.get('PARENT_STATEFULSET')
-if not PARENT_STATEFULSET:
-    print("Please set PARENT_STATEFULSET variable")
-    exit(1)
+NAMESPACE = 'ippbx'
+
+# proxy-dc0 - need to check by IP
+# PARENT_STATEFULSET = os.environ.get('PARENT_STATEFULSET')
+# if not PARENT_STATEFULSET:
+#     print("Please set PARENT_STATEFULSET variable")
+#     exit(1)
 
 try:
     config.load_incluster_config()
@@ -68,6 +66,8 @@ except:
     exit(1)
     # config.load_kube_config()
 
+app = Flask(__name__)
+
 v1 = client.CoreV1Api()
 
 v1a = client.AppsV1Api()
@@ -75,6 +75,8 @@ v1a = client.AppsV1Api()
 try:
     ec2 = boto3.client('ec2')
     ec2r = boto3.resource('ec2')
+    ssm_client = boto3.client('ssm')
+
 except Exception:
     print("Please setup AWS credentials")
     exit(1)
@@ -101,7 +103,7 @@ def get_all_pods() -> List[V1Pod]:
         print(f"""Pod permission not configured
             Please execute 
             kubectl create rolebinding default-view --clusterrole=view --serviceaccount={NAMESPACE}:default --namespace={NAMESPACE}""")
-        exit(1)
+        # exit(1)
     return [i for i in pods_list.items]
 
 
@@ -112,7 +114,7 @@ def get_pods_by_namespace(namespace: str) -> List[V1Pod]:
         print(f"""Pod permission not configured
             Please execute 
             kubectl create rolebinding default-view --clusterrole=view --serviceaccount={NAMESPACE}:default --namespace={NAMESPACE}""")
-        exit(1)
+        # exit(1)
     return [i for i in pods_list.items]
 
 
@@ -120,13 +122,20 @@ def get_stateful_set_pods_ip(pods) -> List[V1Pod]:
     return [i.status.pod_ip for i in pods]
 
 
-def get_statefull_set_pods():
+def get_statful_set_by_ip(ip: str) -> str:
+    resources = get_pods_by_namespace(NAMESPACE)
+    pod_by_ip = [i for i in resources if i.status.pod_ip == ip][0]
+
+    return [i.name for i in pod_by_ip.metadata.owner_references if i.kind == 'StatefulSet'][0]
+
+
+def get_statefull_set_pods(parent_statefullset):
     res = []
     pods = get_pods_by_namespace(NAMESPACE)
     for pod in pods:
         if pod.metadata.owner_references:
             for ref in pod.metadata.owner_references:
-                if ref.name == PARENT_STATEFULSET:
+                if ref.name == parent_statefullset:
                     res.append(pod)
     return res
 
@@ -150,27 +159,30 @@ def get_all_nodes() -> List[V1Node]:
     return [i for i in lst.items]
 
 
-def get_instance_id_by_host_ip(host_ip: str, pod_ip: str) -> (str, str):
+def get_instance_id_by_host_ip(host_ip: str, pod_ip: str) -> (str, str, str):
     nodes = get_all_nodes()
     for node in nodes:
         for addr in node.status.addresses:
             if addr.type == 'InternalIP' and addr.address == host_ip:
                 instance_id = node.spec.provider_id.split('/')[-1]
                 instance = ec2r.Instance(instance_id)
-                for network_interface in instance.network_interfaces_attribute:
-                    if network_interface['PrivateIpAddress'] == host_ip:
-                        for network_interface in instance.network_interfaces_attribute:
-                            if any([i['PrivateIpAddress'] == pod_ip for i in network_interface['PrivateIpAddresses']]):
-                                return instance_id, network_interface['NetworkInterfaceId']
+                for network_interface_host in instance.network_interfaces_attribute:
+                    if network_interface_host['PrivateIpAddress'] == host_ip:
+                        for network_interface_pod in instance.network_interfaces_attribute:
+                            if any([i['PrivateIpAddress'] == pod_ip for i in
+                                    network_interface_pod['PrivateIpAddresses']]):
+                                return (instance_id,
+                                        network_interface_pod['NetworkInterfaceId'],
+                                        network_interface_host['NetworkInterfaceId'])
 
     print(f"Error - no nods found for ip {host_ip}")
     exit(1)
 
 
-def get_statefulset_public_ip_pool(namespace: str) -> List[str]:
+def get_statefulset_public_ip_pool(namespace: str, parent_stateful_set:str) -> List[str]:
     sets = v1a.list_namespaced_stateful_set(namespace)  # type: V1StatefulSetList
     for set in sets.items:  # type: V1StatefulSet
-        if set.metadata.name == PARENT_STATEFULSET:
+        if set.metadata.name == parent_stateful_set:
             return set.metadata.annotations.get('public_ip_pool').split()
 
 
@@ -178,7 +190,6 @@ def prepare_address_objects(pool: List[str]) -> (List[Dict], List[str]):
     res = ec2.describe_addresses()
 
     addresses = [address for address in res['Addresses'] if address['PublicIp'] in pool]
-    # inaccessible_addresses = [address for address in res['Addresses'] if address['PublicIp'] in pool and address not in addresses]
     inaccessible_addresses = [i for i in pool if i not in [a['PublicIp'] for a in addresses]]
 
     return addresses, inaccessible_addresses
@@ -234,51 +245,130 @@ def delete_pod(name):
     v1.delete_namespaced_pod(name, NAMESPACE)
 
 
-def get_nodes_by_instance_id(instance_id: str) -> List[V1Node]:
+def get_nodes_by_instance_id(instance: str) -> List[V1Node]:
     all_nodes = get_all_nodes()
-    return [n for n in all_nodes if n.spec.provider_id.split('/')[-1] == instance_id]
+    return [n for n in all_nodes if n.spec.provider_id.split('/')[-1] == instance]
 
 
-if __name__ == '__main__':
+def execute_ssm_command(instance: str, command: str, instance_id: str) -> (List[str], str):
+
+    response = ssm_client.send_command(
+        InstanceIds=[instance],
+        DocumentName="AWS-RunShellScript",
+        Parameters={'commands': [command]},
+    )
+    command_id = response['Command']['CommandId']
+    time.sleep(0.5)
+    output = ssm_client.get_command_invocation(
+        CommandId=command_id,
+        InstanceId=instance,
+    )
+
+    while output['Status'] == 'InProgress':
+        time.sleep(2)
+        output = ssm_client.get_command_invocation(
+            CommandId=command_id,
+            InstanceId=instance,
+        )
+
+    if output['StatusDetails'] == 'Success':
+        return output['StandardOutputContent'].split('\n') + [(f'Executing command: "{command}" on {instance}')], ''
+    else:
+        return [f'Executing command: "{command}" on {instance}'], \
+               f'Failed to execute "{command}" on {instance_id}. Error - {output["StandardErrorContent"]}'
+
+
+def fix_ip_routes(rules: List[str], my_ip: str, instance_id: str) -> None:
+    operations_log = []
+
+    lookup_pod_ip_lines = [i for i in rules if f"from {my_ip} to" in i]
+    if lookup_pod_ip_lines:
+        first_number = lookup_pod_ip_lines[0].strip().split(' ')[-1].strip()
+        operations_log.append(f"First number - {first_number}")
+        more_lookup_pod_ip_lines = [i for i in rules if f"from {my_ip}" in i]
+        delta_numbers = [i for i in
+                         [i.strip().split(' ')[-1].strip()
+                          for i in more_lookup_pod_ip_lines
+                          if i not in lookup_pod_ip_lines]
+                         if i]
+        operations_log.append(f"Delta numbers: {delta_numbers}")
+
+        for number in delta_numbers:
+            out, err = execute_ssm_command(instance_id, f'ip rule del from {my_ip} to default table {number}', instance_id)
+            operations_log.append(out)
+            if err:
+                raise Exception(err)
+        out, err = execute_ssm_command(instance_id, f'ip rule add from {my_ip} to default table {first_number}', instance_id)
+        operations_log.append(out)
+        if err:
+            raise Exception(err)
+        return operations_log
+
+
+@app.route("/configure_pod/", methods=['POST'])
+def main():
     mapped_ip = None
     errors = None
+    operations_log = []
 
-    my_ip = get_ip()
-    print(f"My IP: {my_ip}")
-    stateful_pods = get_statefull_set_pods()
+    # my_ip = get_ip()
+    my_ip = request.remote_addr
+    operations_log.append(f"My IP: {my_ip}")
+    parent_stateful_set = get_statful_set_by_ip(my_ip)
+    stateful_pods = get_statefull_set_pods(parent_stateful_set)
     stateful_ips = get_stateful_set_pods_ip(stateful_pods)
-    print(f"Stateful IPs: {stateful_ips}")
+    operations_log.append(f"Stateful IPs: {stateful_ips}")
 
     if my_ip not in stateful_ips:
-        print(f"error: current pod is not member of {PARENT_STATEFULSET} statefulset")
-        exit(1)
+        return jsonify({"error": f"error: current pod is not member of {parent_stateful_set} statefulset",
+                        "operations_log": operations_log})
 
     host_ip = get_host_ip_by_pod_ip(my_ip)
-    print(f"Host IP: {host_ip}")
+    operations_log.append(f"Host IP: {host_ip}")
 
     if not host_ip:
-        print("error: cannot determine host IP")
-        exit(1)
+        return jsonify({"error": "error: cannot determine host IP", "operations_log": operations_log})
 
-    instance_id, network_interface = get_instance_id_by_host_ip(host_ip, my_ip)
-    print(f"Instance ID: {instance_id}, Network interface: {network_interface}")
+    instance_id, network_interface_host, network_interface_pod = get_instance_id_by_host_ip(host_ip, my_ip)
+    operations_log.append(
+        f"Instance ID: {instance_id}, Network interface host: {network_interface_host} Network interface pod: {network_interface_pod}")
+
     if not instance_id:
-        print("error: cannot determine EC2 Instance-ID")
-        exit(1)
+        return jsonify({"error": "error: cannot determine EC2 Instance-ID", "operations_log": operations_log})
 
-    public_ip_pool = get_statefulset_public_ip_pool(NAMESPACE)
-    print(f"Public IP pool: {public_ip_pool}")
+    if network_interface_host != network_interface_pod:
+
+        ip_rules, err = execute_ssm_command(instance_id, 'ip rule', instance_id)
+        ip_rules_for_log = [i for i in ip_rules if f'from {my_ip} to ' in i and 'lookup main' not in i]
+        if ip_rules_for_log:
+            operations_log.append(f"IP rules: {ip_rules_for_log[0]}")
+        else:
+            operations_log.append(f"Error: no ip rules found matching the pattern")
+        if err:
+            operations_log.append(err)
+
+        try:
+            operations_log.append(fix_ip_routes(ip_rules, my_ip, instance_id))
+        except Exception as e:
+            operations_log.append(f"Failed to fix ip routes - {e}")
+        if errors:
+            operations_log += errors
+
+    public_ip_pool = get_statefulset_public_ip_pool(NAMESPACE, parent_stateful_set)
+    operations_log.append(f"Public IP pool: {public_ip_pool}")
     if not public_ip_pool:
-        print(f"error: cannot determine public IP addresses for service: {PARENT_STATEFULSET}")
-        exit(1)
+        return jsonify({"error": f"error: cannot determine public IP addresses for service: {parent_stateful_set}",
+                        "operations_log": operations_log})
 
-    print(f"EC2 host with ID {instance_id} have secondary IP address: {my_ip}.")
-    print(f"Please map with {my_ip} IP address one of this elastic IP addresses:")
-    print(f"{public_ip_pool}")
+    operations_log.append(f"EC2 host with ID {instance_id} have secondary IP address: {my_ip}.")
+    operations_log.append(f"Please map with {my_ip} IP address one of this elastic IP addresses:")
+    operations_log.append(f"{public_ip_pool}")
 
     address_objects, inaccessibles = prepare_address_objects(public_ip_pool)
 
-    print(f"Inaccessibles IP addresses: {inaccessibles}")
+    operations_log.append(f"Inaccessibles IP addresses: {inaccessibles}")
+
+    pods = []
 
     for ip in address_objects:
 
@@ -286,31 +376,23 @@ if __name__ == '__main__':
             pods = get_pods_by_instance_ip(ip)
 
             if not pods:
-                print(f"No pods found associated with address {ip}")
+                operations_log.append(f"No pods found associated with address {ip}")
                 release_address(ip)
 
             else:
                 nodes = get_nodes_by_instance_id(ip['InstanceId'])
                 if not nodes:
-                    print(f"No nodes found for IP address {ip}")
-                    exit(1)
+                    return jsonify(
+                        {"error": f"No nodes found for IP address {ip}", "operations_log": operations_log})
 
                 for node in nodes:
                     if [i.address for i in node.status.addresses if i.type == 'InternalIP'] != [pods[0].status.host_ip]:
-                        print(f"No pods found associated with address {ip}")
+                        operations_log.append(f"No pods found associated with address {ip}")
                         release_address(ip)
-                        # mapped_ip, errors = assign_address_to_instance(
-                        #     [ip], instance_id, network_interface, my_ip, force=True)
                         continue
 
-                # if not pods returned -> deallocate
-                # if we have a name -> check owner of the pod
-                # if part of statefull set -> do nothing
-                # if nod internal ip == my internal ip -> return the ip in question and end the script
-                # if not a part of statefull set -> deallocate + restart (delete pod)
-
                 if pods[0].metadata.name not in [i.metadata.name for i in stateful_pods]:
-                    print(f"{pods[0].metadata.name} associated with address {ip} and not a part of stateful set")
+                    operations_log.append(f"{pods[0].metadata.name} associated with address {ip} and not a part of stateful set")
                     release_address(ip)
                     delete_pod(pods[0].metadata.name)
 
@@ -318,15 +400,21 @@ if __name__ == '__main__':
                     mapped_ip = ip['PublicIp']
 
     if not mapped_ip:
-        mapped_ip, errors = assign_address_to_instance(address_objects, instance_id, network_interface, my_ip)
+        mapped_ip, errors = assign_address_to_instance(address_objects, instance_id, network_interface_host, my_ip)
 
     if not mapped_ip and errors:
-        print(f"Failed to assign elastic IP - {errors}")
-        exit(1)
+        return jsonify(
+            {"error": f"Failed to assign elastic IP - {errors}", "operations_log": operations_log})
 
-    print(f"Successfully assigned IP - {mapped_ip}")
+    if pods:
+        if pods[0].status.host_ip == pods[0].status.pod_ip:
+            pass
 
-    with open('/tmp/pod_public_ip', 'wt') as f:
-        print(mapped_ip, file=f)
+    operations_log.append(f"Successfully assigned IP - {mapped_ip}")
 
-    print("Public IP saved to file /tmp/pod_public_ip")
+    return jsonify(
+            {"mapped_ip": mapped_ip, "operations_log": operations_log})
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080, debug=False)
