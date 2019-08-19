@@ -3,9 +3,11 @@
 
 if [ -z "${PUBLIC_IPV4}" ]; then
     # Calling kamailio-helper service to assign elastic IP and adjust "ip rules" on EC2 instance
-    curl -s -S -X POST http://kamailio-helper.ippbx:8080/configure_pod/ | jq -j '.mapped_ip' > /tmp/pod_public_ip
+    curl -s -S -X POST http://kamailio-helper.ippbx:8080/configure_pod/ | tee /tmp/curl.log | jq -j '.mapped_ip' > /tmp/pod_public_ip
     if [ $? = 0 ]; then
         PUBLIC_IPV4=$(cat /tmp/pod_public_ip)
+        echo "Content of 'curl.log'"
+        cat /tmp/curl.log | jq
     else
         PUBLIC_IPV4=$(wget -q -O - http://169.254.169.254/latest/meta-data/public-ipv4)
     fi
