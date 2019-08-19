@@ -51,7 +51,9 @@ if not os.environ.get('AWS_ACCESS_KEY_ID') or not \
     exit(1)
 
 
-NAMESPACE = 'ippbx'
+# NAMESPACE = 'ippbx'
+NAMESPACE = open('/var/run/secrets/kubernetes.io/serviceaccount/namespace').readlines()[0].replace('\n', '')
+
 
 # proxy-dc0 - need to check by IP
 # PARENT_STATEFULSET = os.environ.get('PARENT_STATEFULSET')
@@ -272,13 +274,13 @@ def execute_ssm_command(instance: str, command: str, instance_id: str) -> (List[
         )
 
     if output['StatusDetails'] == 'Success':
-        return output['StandardOutputContent'].split('\n') + [(f'Executing command: "{command}" on {instance}')], ''
+        return [i for i in output['StandardOutputContent'].split('\n') + [(f'Executing command: "{command}" on {instance}')] if i], ''
     else:
         return [f'Executing command: "{command}" on {instance}'], \
                f'Failed to execute "{command}" on {instance_id}. Error - {output["StandardErrorContent"]}'
 
 
-def fix_ip_routes(rules: List[str], my_ip: str, instance_id: str) -> None:
+def fix_ip_routes(rules: List[str], my_ip: str, instance_id: str) -> List[str]:
     operations_log = []
 
     lookup_pod_ip_lines = [i for i in rules if f"from {my_ip} to" in i]
@@ -302,7 +304,14 @@ def fix_ip_routes(rules: List[str], my_ip: str, instance_id: str) -> None:
         operations_log.append(out)
         if err:
             raise Exception(err)
-        return operations_log
+    return operations_log
+
+
+def get_statful_set_addresses(parent_stateful_set) -> List[str]:
+    pods = get_statefull_set_pods(parent_stateful_set)
+    pod_ips = [i.status.pod_ip for i in pods]
+    # host_ips = [get_host_ip_by_pod_ip(pod_ip) for pod_ip in pod_ips]
+    return pod_ips
 
 
 @app.route("/configure_pod/", methods=['POST'])
@@ -412,8 +421,80 @@ def main():
 
     operations_log.append(f"Successfully assigned IP - {mapped_ip}")
 
-    return jsonify(
-            {"mapped_ip": mapped_ip, "operations_log": operations_log})
+    # Проверка 1
+    # 1) проверять наличие ipset - "ipset list %{satefulset_name}"
+    # 2) если не нашли, то создавать -> " ipset create %{satefulset_name} nethash"
+    # 3) если нашли, то продолжаем обработку
+
+    res, err = execute_ssm_command(instance_id, f"ipset list {parent_stateful_set}", instance_id)
+
+    operations_log.append(f"IP set list - {res}")
+
+    if any(['The set with the given name does not exist' in i for i in err]):
+        res, err = execute_ssm_command(instance_id, f"ipset create {parent_stateful_set} nethash", instance_id)
+    if err:
+        operations_log.append(f"IP set create errors - {err}")
+
+
+    # Проверка 2
+    # pod -> statfll set -> elastic ip
+    # to find the second running pod in the same stateful set
+    # 1) в полученном результате проверяем IP адреса (pod ip) в списке ipset.
+    # Адреса которые не входят в этот statefulset удаляем комадой вида "ipset del %{satefulset_name} %{members_pods.my_ipN}"
+    # 2) добавлем для кажого pod.my_private_ip что входит в этот статефулсет правило вида "ipset add %{satefulset_name} %{members_pods.my_ipN}".
+    # Если правило есть, то команда выдаст ошибку. Ошибку игнорируем. В принципе можно добавлять только те адреса которых нет в  ipset.
+
+    statful_set_addresses = get_statful_set_addresses(parent_stateful_set)
+    operations_log.append(f"Stateful set addresses - {statful_set_addresses}")
+
+    ipset_results, err = execute_ssm_command(instance_id, f"ipset list {parent_stateful_set}", instance_id)
+    operations_log.append(f"IP set list - {ipset_results}")
+
+    # if err:
+    #     operations_log.append(f"IP set list resolve errors - {err}")
+
+    ipset_addresses = ipset_results[ipset_results.index('Members:')+1:-1] if 'Members:' in ipset_results else []
+
+    operations_log.append(f"IPset addresses - {ipset_addresses}")
+
+    for ip in ipset_addresses:
+        if ip not in statful_set_addresses:
+            res, err = execute_ssm_command(instance_id, f"ipset del {parent_stateful_set} {ip}", instance_id)
+            operations_log.append(f"IP set del res - {res}")
+
+    for ip in statful_set_addresses:
+        res, err = execute_ssm_command(instance_id, f"ipset add {parent_stateful_set} {ip}", instance_id)
+        operations_log.append(f"IP set add res - {res}")
+    # res, err = execute_ssm_command(instance_id, f"ipset add {parent_stateful_set} {my_ip}", instance_id)
+    # operations_log.append(f"IP set add res - {res}")
+
+    # Проверка 3
+    # 1) получаем список правил iptables - "iptables-save"
+    # 2) искать в нем строку "-A POSTROUTING -m comment --comment "kamailio-helper for statefulset %{satefulset_name}" -m set --match-set %{satefulset_name} src -j ACCEPT";
+    # 3) если не нашли, то добавляем ее iptables -t nat -I POSTROUTING -m comment --comment "kamailio-helper for statefulset %{satefulset_name}" -m set --match-set %{satefulset_name} src -j ACCEPT
+    # 4) нашли, продожаем обработку
+
+    res, err = execute_ssm_command(instance_id, f"iptables-save", instance_id)
+    # operations_log.append(f"iptables - {res}")
+    if err:
+        operations_log.append(f"iptables resolve errors - {err}")
+
+    iptable_res_found = False
+    for r in res:
+        if f'-A POSTROUTING -m comment --comment \"kamailio-helper for statefulset {parent_stateful_set}\" -m set --match-set {parent_stateful_set} src -j ACCEPT' in r:
+            iptable_res_found = True
+            operations_log.append(f"Found matching iptables rule")
+
+    if not iptable_res_found:
+        operations_log.append(f"iptables - {res}")
+        command = f'iptables -t nat -I POSTROUTING -m comment --comment \"kamailio-helper for statefulset {parent_stateful_set}\" -m set --match-set {parent_stateful_set} src -j ACCEPT'
+
+        res, err = execute_ssm_command(instance_id, command, instance_id)
+        if err:
+            operations_log.append(f"iptables add errors - {err}")
+        else:
+            operations_log.append(f"added iptables rule - {command}")
+    return jsonify({"mapped_ip": mapped_ip, "operations_log": operations_log})
 
 
 if __name__ == '__main__':
