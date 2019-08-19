@@ -34,9 +34,10 @@ RUN echo "Removing .git folders from repos" \
               /etc/kazoo/kazoo-configs-kamailio/.git
 
 ADD app.py /etc/kazoo/kazoo-configs-kamailio/kamailio/
-
+ADD bird.conf /etc/kazoo/
 
 FROM alpine:edge
 COPY --from=build /etc/kazoo /etc/kazoo
-RUN apk --no-cache add jq curl bind-tools python3 \
-    && pip3 install kubernetes awscli boto3
+RUN echo 'http://dl-cdn.alpinelinux.org/alpine/edge/testing' >> /etc/apk/repositories \
+    && apk --no-cache add jq curl bind-tools python3 bird \
+    && pip3 install kubernetes awscli boto3 flask

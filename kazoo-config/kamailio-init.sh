@@ -2,8 +2,8 @@
 
 
 if [ -z "${PUBLIC_IPV4}" ]; then
-    # Try get public IP from python custom script
-    python3 /etc/kazoo/kazoo-configs-kamailio/kamailio/kube.py
+    # Calling kamailio-helper service to assign elastic IP and adjust "ip rules" on EC2 instance
+    curl -s -S -X POST http://kamailio-helper.ippbx:8080/configure_pod/ | jq -j '.mapped_ip' > /tmp/pod_public_ip
     if [ $? = 0 ]; then
         PUBLIC_IPV4=$(cat /tmp/pod_public_ip)
     else
