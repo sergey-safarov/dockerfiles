@@ -430,10 +430,12 @@ def main():
 
     operations_log.append(f"IP set list - {res}")
 
-    if any(['The set with the given name does not exist' in i for i in err]):
-        res, err = execute_ssm_command(instance_id, f"ipset create {parent_stateful_set} nethash", instance_id)
     if err:
-        operations_log.append(f"IP set create errors - {err}")
+        command = f"ipset create {parent_stateful_set} nethash"
+        res, err = execute_ssm_command(instance_id, command, instance_id)
+        operations_log.append(f"creating ipset - {command}")
+        if err:
+            operations_log.append(f"IP set create errors - {err}")
 
 
     # Проверка 2
