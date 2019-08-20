@@ -1,0 +1,26 @@
+From 0a1d5cfc6371be93206a6833cbf17cc4de8feb7f Mon Sep 17 00:00:00 2001
+From: root <root@node1.http.rcsnet.ru>
+Date: Tue, 17 Apr 2018 09:25:34 +0000
+Subject: [PATCH 07/15] Added russian flag
+
+---
+ src/apps/common/style/app.css                        |   2 +-
+ src/apps/common/style/static/images/RU_flag.png      | Bin 0 -> 289 bytes
+ src/apps/common/submodules/buyNumbers/buyNumbers.css |   2 +-
+ 3 files changed, 2 insertions(+), 2 deletions(-)
+ create mode 100644 src/apps/common/style/static/images/RU_flag.png
+
+diff --git a/src/apps/common/style/static/images/RU_flag.png b/src/apps/common/style/static/images/RU_flag.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..1f0fd92ac08554927367ebfb3a1aa8bdf6015907
+GIT binary patch
+literal 289
+zcmeAS@N?(olHy`uVBq!ia0vp^3P3E%#0(^(7PC|WDVB6cUq=Rpjs4tz5?O(Kg=CK)
+zUj~LMH3o);76yi2K%s^g3=E|P3=FRl7#OT(FffQ0%-I!a1C-zl@CkAK|NlRO<+7{V
+za(iQ$76Anrlf2zs7&=&GJ%Akc5>H=O_J<r?Onl-2SGR&J5cPC%4B@z*oUnkW#ffod
+zPiTOH95X}VGxL-8=Vyxp6{wcDMwFx^mZVxG7o`Fz1|tJQb6o=qT|<Kq10yR#6DuQQ
+oZ36=<0|T$%ga{N3x%nxXX_dG&So7U@0@T3Z>FVdQ&MBb@0GOUgu>b%7
+
+literal 0
+HcmV?d00001
+

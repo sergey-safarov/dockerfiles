@@ -1,0 +1,41 @@
+From 252faa99fd396dcf6fb94d60a138accd93717eba Mon Sep 17 00:00:00 2001
+From: root <root@node1.http.rcsnet.ru>
+Date: Tue, 17 Apr 2018 08:34:38 +0000
+Subject: [PATCH 05/15] Number buy support
+
+---
+ apps/common/submodules/buyNumbers/buyNumbers.js | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/apps/common/submodules/buyNumbers/buyNumbers.js b/apps/common/submodules/buyNumbers/buyNumbers.js
+index 3f481e4..5c578c1 100644
+--- a/src/apps/common/submodules/buyNumbers/buyNumbers.js
++++ b/src/apps/common/submodules/buyNumbers/buyNumbers.js
+@@ -61,6 +61,15 @@ define(function(require) {
+ 		buyNumbersGetData: function(callback) {
+ 			var self = this,
+ 				countries = {
++					'RU': {
++						local: true,
++						toll_free: [
++							'80*'
++						],
++						vanity: true,
++						prefix: 7,
++						name: 'Russian Federation'
++					},
+ 					'US': {
+ 						local: true,
+ 						toll_free: [
+@@ -898,6 +907,8 @@ define(function(require) {
+ 
+ 			if (countryCode === 'US') {
+ 				result = (addPrefix ? '+' + addPrefix + ' ' : '') + number.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
++			} else if (countryCode === 'RU') {
++				result = (addPrefix ? '+' + addPrefix + ' ' : '') + number.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
+ 			} else {
+ 				result = (addPrefix ? '+' + addPrefix : '') + number;
+ 			}
+-- 
+1.8.3.1
+

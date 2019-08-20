@@ -1,0 +1,47 @@
+From 90305fd5e0274e5c1fc1b7b05a0062469c050c6d Mon Sep 17 00:00:00 2001
+From: root <root@node1.http.rcsnet.ru>
+Date: Tue, 10 Apr 2018 08:50:03 +0000
+Subject: [PATCH 04/15] Added T.38 to Faxbox
+
+---
+ apps/callflows/submodules/faxbox/faxbox.js | 5 +++++
+ apps/callflows/views/faxbox-edit.html      | 7 +++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/submodules/faxbox/faxbox.js b/submodules/faxbox/faxbox.js
+index ea7c95c..b4a1671 100644
+--- a/submodules/faxbox/faxbox.js
++++ b/submodules/faxbox/faxbox.js
+@@ -559,6 +559,11 @@ define(function(require) {
+ 				delete form_data.caller_id;
+ 			}
+ 
++			if (form_data.hasOwnProperty('t_38_checkbox')) {
++				form_data.media.fax_option = form_data.t_38_checkbox;
++				delete form_data.t_38_checkbox;
++			}
++
+ 			return form_data;
+ 		},
+ 
+diff --git a/submodules/faxbox/views/edit.html b/submodules/faxbox/views/edit.html
+index 6ea3e49..6378625 100644
+--- a/submodules/faxbox/views/edit.html
++++ b/submodules/faxbox/views/edit.html
+@@ -157,6 +157,13 @@
+ 						</select>
+ 					</div>
+ 				</div>
++
++				<div class="clearfix">
++					<label for="t_38_checkbox">{{ i18n.oldCallflows.t_38_checkbox }}</label>
++					<div class="input">
++						<input id="t_38_checkbox" name="t_38_checkbox" type="checkbox"{{#compare faxbox.media.fax_option '===' true}} checked{{/compare}}/>
++					</div>
++				</div>
+ 			</div>
+ 		</div>
+ 	 </form>
+-- 
+1.8.3.1
+
