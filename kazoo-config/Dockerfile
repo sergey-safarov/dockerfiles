@@ -5,8 +5,11 @@ RUN apk add git
 RUN echo "Downloading core repos" \
     && mkdir /etc/kazoo \
     && git clone -b no_swarm https://github.com/sergey-safarov/kazoo-configs-kamailio.git /etc/kazoo/kazoo-configs-kamailio \
+    && rm -Rf /etc/kazoo/kazoo-configs-kamailio \
     && git clone https://github.com/sergey-safarov/kazoo-configs-freeswitch.git /etc/kazoo/kazoo-configs-freeswitch \
     && git clone https://github.com/sergey-safarov/kazoo-configs-core.git /etc/kazoo/kazoo-configs-core
+
+RUN kazoo-configs-kamailio /etc/kazoo/kazoo-configs-kamailio/
 
 RUN echo "Preparing PostgreSQL database init files" \
     && DB_ENGINE=postgres /etc/kazoo/kazoo-configs-kamailio/kamailio/db_scripts/create-kazoodb-sql.sh \
@@ -34,10 +37,9 @@ RUN echo "Removing .git folders from repos" \
               /etc/kazoo/kazoo-configs-kamailio/.git
 
 ADD app.py /etc/kazoo/kazoo-configs-kamailio/kamailio/
-ADD bird.conf /etc/kazoo/
+ADD queue-sync.sh queue /etc/kazoo/queue/
 
-FROM alpine:edge
+FROM alpine
 COPY --from=build /etc/kazoo /etc/kazoo
-RUN echo 'http://dl-cdn.alpinelinux.org/alpine/edge/testing' >> /etc/apk/repositories \
-    && apk --no-cache add jq curl bind-tools python3 bird \
+RUN apk --no-cache add jq curl bind-tools python3 grep freeswitch \
     && pip3 install kubernetes awscli boto3 flask
