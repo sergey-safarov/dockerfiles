@@ -9,7 +9,7 @@ RUN echo "Downloading core repos" \
     && git clone https://github.com/sergey-safarov/kazoo-configs-freeswitch.git /etc/kazoo/kazoo-configs-freeswitch \
     && git clone https://github.com/sergey-safarov/kazoo-configs-core.git /etc/kazoo/kazoo-configs-core
 
-RUN kazoo-configs-kamailio /etc/kazoo/kazoo-configs-kamailio/
+ADD kazoo-configs-kamailio /etc/kazoo/kazoo-configs-kamailio/
 
 RUN echo "Preparing PostgreSQL database init files" \
     && DB_ENGINE=postgres /etc/kazoo/kazoo-configs-kamailio/kamailio/db_scripts/create-kazoodb-sql.sh \
