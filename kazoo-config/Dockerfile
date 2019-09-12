@@ -29,15 +29,23 @@ ADD kamailio-init.sh /etc/kazoo/
 
 RUN echo "Preparing FreeSwitch config" \
     && sed -i -e '/docker_ip_v4/d' /etc/kazoo/kazoo-configs-freeswitch/freeswitch/freeswitch.xml \
-    && sed -i -e 's/docker_ip_v4/local_ip_v4/' /etc/kazoo/kazoo-configs-freeswitch/freeswitch/sip_profiles/sipinterface_1.xml
+    && sed -i -e 's/docker_ip_v4/local_ip_v4/' /etc/kazoo/kazoo-configs-freeswitch/freeswitch/sip_profiles/sipinterface_1.xml \
+    && sed -i -E -e 's|(\s+)(.*mod_kazoo.*)|\1\2\n\1<load module="mod_xml_cdr" />|'  /etc/kazoo/kazoo-configs-freeswitch/freeswitch/autoload_configs/modules.conf.xml \
+    && sed -i -E -e 's|(\s+)(.*mod_dptools.*)|\1\2\n\1<load module="mod_sms" />|'  /etc/kazoo/kazoo-configs-freeswitch/freeswitch/autoload_configs/modules.conf.xml
+
+#    && sed -i -e 's/docker_ip_v4/local_ip_v4/' -e 's/loopback.auto/rfc1918.auto/' /etc/kazoo/kazoo-configs-freeswitch/freeswitch/sip_profiles/sipinterface_1.xml \
+
+ADD xml_cdr.conf.xml /etc/kazoo/kazoo-configs-freeswitch/freeswitch/autoload_configs/
 
 RUN echo "Removing .git folders from repos" \
     && rm -Rf /etc/kazoo/kazoo-configs-core/.git \
               /etc/kazoo/kazoo-configs-freeswitch/.git \
               /etc/kazoo/kazoo-configs-kamailio/.git
 
-ADD app.py /etc/kazoo/kazoo-configs-kamailio/kamailio/
+ADD app.py app-priv.py /etc/kazoo/kazoo-configs-kamailio/kamailio/
 ADD queue-sync.sh queue /etc/kazoo/queue/
+ADD qpanel /etc/kazoo/qpanel/
+ADD homer /etc/kazoo/homer/
 
 FROM alpine
 COPY --from=build /etc/kazoo /etc/kazoo
