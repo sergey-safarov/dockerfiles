@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# Wait until kamailio-helper service is available
+until ping -c1 kamailio-helper.ippbx >/dev/null 2>&1; do :; done
 
 if [ "${DISABLE_NAT}" != "true" -a -z "${PUBLIC_IPV4}" ]; then
     # Calling kamailio-helper service to assign elastic IP and adjust "ip rules" on EC2 instance
