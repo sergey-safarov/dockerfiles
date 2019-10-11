@@ -56,4 +56,4 @@ ADD host_iptables.sh /etc/kazoo/
 FROM alpine
 COPY --from=build /etc/kazoo /etc/kazoo
 RUN apk --no-cache add jq curl bind-tools python3 grep freeswitch iptables \
-    && pip3 install kubernetes awscli boto3 flask loguru
+    && pip3 install kubernetes awscli boto3 flask
