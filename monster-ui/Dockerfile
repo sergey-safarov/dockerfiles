@@ -23,7 +23,8 @@ RUN git clone --branch ${UI_VER} https://github.com/2600hz/monster-ui.git /tmp/m
     && git clone --branch ${UI_NUMBERS_VER} https://github.com/2600hz/monster-ui-numbers.git /tmp/monster-ui/src/apps/numbers \
     && git clone --branch ${UI_FAX_VER} https://github.com/2600hz/monster-ui-fax.git /tmp/monster-ui/src/apps/fax \
     && git clone --branch ${UI_VOICEMAILS_VER} https://github.com/2600hz/monster-ui-voicemails.git /tmp/monster-ui/src/apps/voicemails \
-    && git clone --branch ${UI_CSV_VER} https://github.com/2600hz/monster-ui-csv-onboarding.git /tmp/monster-ui/src/apps/csv
+    && git clone --branch ${UI_CSV_VER} https://github.com/2600hz/monster-ui-csv-onboarding.git /tmp/monster-ui/src/apps/csv \
+    && git clone https://github.com/OpenTelecom/monster-ui-recordings-1.git /tmp/monster-ui-recordings
 
 COPY files/ /tmp
 
@@ -51,6 +52,13 @@ RUN git config --global user.email "you@example.com" \
     && find /tmp/patches/webhooks -maxdepth 1 -type f -name *.patch -exec git am {} \; \
     && echo "patches applied" \
     && cd /tmp/monster-ui \
+    && cp -R /tmp/monster-ui-recordings/src/* src/ \
+    && sed -e "/paths.*/a  'datatables.net': 'js/vendor/datatables/jquery.dataTables.min'," \
+           -e "/paths.*/a  'datatables.net-bs': 'js/vendor/datatables/dataTables.bootstrap.min'," \
+           -e "/paths.*/a  'datatables.net-buttons': 'js/vendor/datatables/dataTables.buttons.min'," \
+           -e "/paths.*/a  'datatables.net-buttons-html5': 'js/vendor/datatables/buttons.html5.min'," \
+           -e "/paths.*/a  'datatables.net-buttons-bootstrap':'js/vendor/datatables/buttons.bootstrap.min'," \
+           -i src/js/main.js \
     && npm install \
     && gulp build-all \
     && mkdir -p /tmp/target/etc/nginx/conf.d \
