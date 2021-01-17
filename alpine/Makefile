@@ -4,6 +4,7 @@
 #		 | tr "[A-Z]" "[a-z]" | tr "/" "_")
 
 test:
+	uname -a
 	git clone https://github.com/kamailio/kamailio.git
 	cd kamailio/src
 	make cfg
