@@ -2,8 +2,10 @@ FROM alpine:edge
 
 COPY  Makefile /tmp
 
-RUN apk add make \
+RUN apk add make git \
     && cd /tmp \
-    && apk update muls musl-utils \
-    && apk add musl-dev \
-    && make
+    && apk add musl-utils musl-dev \
+    && apk update muls musl-utils musl-dev \
+    && git clone https://github.com/kamailio/kamailio.git \
+    && cd kamailio/src \
+    && make cfg

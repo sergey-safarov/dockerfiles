@@ -4,7 +4,6 @@
 #		 | tr "[A-Z]" "[a-z]" | tr "/" "_")
 
 test:
-	apk add git
 	git clone https://github.com/kamailio/kamailio.git
 	cd kamailio/src
 	make cfg
