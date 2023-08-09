@@ -11,7 +11,7 @@ ENV UI_FAX_VER 4.3.5
 ENV UI_VOICEMAILS_VER 4.3.5
 ENV UI_CSV_VER 4.3.11
 
-RUN apk add git npm \
+RUN apk add git npm python2 make g++ \
     && npm install gulp -g
 
 RUN git clone --branch ${UI_VER} https://github.com/2600hz/monster-ui.git /tmp/monster-ui \
